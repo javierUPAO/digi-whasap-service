@@ -501,6 +501,9 @@ class WhatsAppService {
       // Ignorar mensajes de grupos
       if (msg.key.remoteJid.includes("@g.us")) continue;
 
+      // Ignorar reacciones a mensajes (no son mensajes de texto ni media)
+      if (msg.message?.reactionMessage) continue;
+
       try {
         const remoteJid = msg.key.remoteJid;
         const isLid = this.isLid(remoteJid);
