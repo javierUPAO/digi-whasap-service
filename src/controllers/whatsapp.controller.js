@@ -547,7 +547,9 @@ export async function sendMedia(req, res) {
         result = await whatsappService.sendAudio(
           jid,
           buffer,
-          finalMimetype || "audio/mpeg; codecs=opus",
+          finalMimetype && finalMimetype.includes("ogg")
+            ? finalMimetype
+            : "audio/ogg; codecs=opus",
         );
         break;
       case "video":
