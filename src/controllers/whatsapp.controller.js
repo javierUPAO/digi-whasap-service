@@ -249,6 +249,7 @@ async function syncOutgoingMessageToCRM({
   message,
   messageId,
   timestamp,
+  isSummary,
 }) {
   const crmUrl = process.env.CRM_URL || "http://localhost:3000";
   const secret = process.env.WHATSAPP_WEBHOOK_SECRET || "";
@@ -270,6 +271,7 @@ async function syncOutgoingMessageToCRM({
     channel: "whatsapp",
     source: "n8n",
     status: "sent",
+    isSummary: !!isSummary,
   };
 
   console.log(
@@ -307,7 +309,7 @@ export async function sendMessage(req, res) {
       });
     }
 
-    const { phone, jid: inputJid, message, n8n: n8n } = req.body;
+    const { phone, jid: inputJid, message, n8n: n8n, isSummary } = req.body;
 
     if (!message) {
       return res.status(400).json({
@@ -367,6 +369,7 @@ export async function sendMessage(req, res) {
           message,
           messageId: result.messageId,
           timestamp: result.timestamp,
+          isSummary: !!isSummary,
         });
       } catch (crmError) {
         logger.error(
@@ -544,7 +547,9 @@ export async function sendMedia(req, res) {
         result = await whatsappService.sendAudio(
           jid,
           buffer,
-          finalMimetype || "audio/mpeg; codecs=opus",
+          finalMimetype && finalMimetype.includes("ogg")
+            ? finalMimetype
+            : "audio/ogg; codecs=opus",
         );
         break;
       case "video":

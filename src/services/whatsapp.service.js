@@ -8,6 +8,7 @@ import makeWASocket, {
 } from "@whiskeysockets/baileys";
 import QRCode from "qrcode";
 import fs from "fs";
+import { spawn } from "child_process";
 import pino from "pino";
 import { Boom } from "@hapi/boom";
 import logger from "./logger.service.js";
@@ -16,6 +17,62 @@ import { WHATSAPP_CONFIG, TRIGGER_N8N_URL } from "../config/constants.js";
 // Cache de la version de Baileys: evita pedirla por red en cada initialize()
 let cachedBaileysVersion = null;
 let cachedBaileysVersionAt = 0;
+
+/**
+ * Convierte un buffer de audio (ej: WAV, MP3) al formato OGG con codec Opus (audio/ogg; codecs=opus)
+ * requerido estrictamente por WhatsApp para notas de voz nativas (PTT).
+ */
+function convertToOggOpus(inputBuffer) {
+  return new Promise((resolve) => {
+    // Si ya empieza con 'OggS', ya es un archivo Ogg Opus
+    if (inputBuffer.length >= 4 && inputBuffer.slice(0, 4).toString() === "OggS") {
+      return resolve(inputBuffer);
+    }
+
+    const ffmpegCmd = process.env.FFMPEG_PATH || "ffmpeg";
+    const ffmpeg = spawn(
+      ffmpegCmd,
+      [
+        "-i", "pipe:0",
+        "-c:a", "libopus",
+        "-b:a", "64k",
+        "-vbr", "on",
+        "-compression_level", "10",
+        "-f", "ogg",
+        "pipe:1",
+      ],
+      { stdio: ["pipe", "pipe", "pipe"] }
+    );
+
+    const chunks = [];
+    ffmpeg.stdout.on("data", (chunk) => chunks.push(chunk));
+
+    let stderr = "";
+    ffmpeg.stderr.on("data", (d) => (stderr += d.toString()));
+
+    ffmpeg.on("close", (code) => {
+      if (code === 0 && chunks.length > 0) {
+        resolve(Buffer.concat(chunks));
+      } else {
+        logger.warn("FFmpeg no pudo convertir el audio a Ogg Opus, usando buffer original", {
+          code,
+          stderr: stderr.slice(0, 200),
+        });
+        resolve(inputBuffer);
+      }
+    });
+
+    ffmpeg.on("error", (err) => {
+      logger.warn("Error al invocar FFmpeg para conversión a Ogg Opus", {
+        error: err.message,
+      });
+      resolve(inputBuffer);
+    });
+
+    ffmpeg.stdin.write(inputBuffer);
+    ffmpeg.stdin.end();
+  });
+}
 
 class WhatsAppService {
   constructor() {
@@ -739,20 +796,24 @@ class WhatsAppService {
 
   /**
    * Envía un mensaje de audio (notas de voz)
+   * WhatsApp exige obligatoriamente formato Ogg con codec Opus (audio/ogg; codecs=opus) para notas de voz PTT.
    */
-  async sendAudio(jid, audioBuffer, mimetype = "audio/mpeg; codecs=opus") {
+  async sendAudio(jid, audioBuffer, mimetype = "audio/ogg; codecs=opus") {
     if (!this.isReady || !this.sock) {
       throw new Error("WhatsApp no está conectado");
     }
 
     try {
+      // Convertir a OGG Opus si no lo es (ej: WAV procedente del TTS de Gemini)
+      const oggBuffer = await convertToOggOpus(audioBuffer);
+
       const result = await this.sock.sendMessage(jid, {
-        audio: audioBuffer,
-        mimetype,
+        audio: oggBuffer,
+        mimetype: "audio/ogg; codecs=opus",
         ptt: true,
       });
 
-      logger.info("Audio enviado", { jid });
+      logger.info("Audio enviado (Ogg Opus PTT)", { jid, bytes: oggBuffer.length });
       return {
         success: true,
         messageId: result.key.id,
