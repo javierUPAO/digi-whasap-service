@@ -25,7 +25,10 @@ let cachedBaileysVersionAt = 0;
 function convertToOggOpus(inputBuffer) {
   return new Promise((resolve) => {
     // Si ya empieza con 'OggS', ya es un archivo Ogg Opus
-    if (inputBuffer.length >= 4 && inputBuffer.slice(0, 4).toString() === "OggS") {
+    if (
+      inputBuffer.length >= 4 &&
+      inputBuffer.slice(0, 4).toString() === "OggS"
+    ) {
       return resolve(inputBuffer);
     }
 
@@ -33,15 +36,21 @@ function convertToOggOpus(inputBuffer) {
     const ffmpeg = spawn(
       ffmpegCmd,
       [
-        "-i", "pipe:0",
-        "-c:a", "libopus",
-        "-b:a", "64k",
-        "-vbr", "on",
-        "-compression_level", "10",
-        "-f", "ogg",
+        "-i",
+        "pipe:0",
+        "-c:a",
+        "libopus",
+        "-b:a",
+        "64k",
+        "-vbr",
+        "on",
+        "-compression_level",
+        "10",
+        "-f",
+        "ogg",
         "pipe:1",
       ],
-      { stdio: ["pipe", "pipe", "pipe"] }
+      { stdio: ["pipe", "pipe", "pipe"] },
     );
 
     const chunks = [];
@@ -54,10 +63,13 @@ function convertToOggOpus(inputBuffer) {
       if (code === 0 && chunks.length > 0) {
         resolve(Buffer.concat(chunks));
       } else {
-        logger.warn("FFmpeg no pudo convertir el audio a Ogg Opus, usando buffer original", {
-          code,
-          stderr: stderr.slice(0, 200),
-        });
+        logger.warn(
+          "FFmpeg no pudo convertir el audio a Ogg Opus, usando buffer original",
+          {
+            code,
+            stderr: stderr.slice(0, 200),
+          },
+        );
         resolve(inputBuffer);
       }
     });
@@ -300,7 +312,16 @@ class WhatsAppService {
         });
 
         // se guarda las credenciales cuando cambien
-        this.sock.ev.on("creds.update", saveCreds);
+        this.sock.ev.on("creds.update", async () => {
+          await saveCreds();
+          if (this.isReady) {
+            this.emitQRUpdate({
+              connectionStatus: "connected",
+              qrData: null,
+              ...this.getUserInfo(),
+            });
+          }
+        });
 
         // Escuchar mensajes entrantes
         this.sock.ev.on("messages.upsert", async (messageUpdate) => {
@@ -386,13 +407,13 @@ class WhatsAppService {
       }
     } else if (connection === "open") {
       logger.info("Cliente de WhatsApp listo");
+      logger.info("creds.me", { me: this.sock?.authState?.creds?.me });
       this.isReady = true;
-      this.currentQR = null;
-      clearTimeout(this.qrTimeout);
 
       this.emitQRUpdate({
         connectionStatus: "connected",
         qrData: null,
+        ...this.getUserInfo(),
       });
     }
   }
@@ -813,7 +834,10 @@ class WhatsAppService {
         ptt: true,
       });
 
-      logger.info("Audio enviado (Ogg Opus PTT)", { jid, bytes: oggBuffer.length });
+      logger.info("Audio enviado (Ogg Opus PTT)", {
+        jid,
+        bytes: oggBuffer.length,
+      });
       return {
         success: true,
         messageId: result.key.id,
@@ -1047,6 +1071,8 @@ class WhatsAppService {
       this.emitQRUpdate({
         connectionStatus: "disconnected",
         qrData: null,
+        phoneNumber: null,
+        pushName: null,
       });
 
       // Esperar antes de eliminar archivos
@@ -1156,6 +1182,20 @@ class WhatsAppService {
     this.initializePromise = null;
     clearTimeout(this.qrTimeout);
   }
+  /**
+   * Número y nombre de perfil de la cuenta vinculada.
+   */
+  getUserInfo() {
+    // authState.creds.me se actualiza solo; sock.user puede quedar desfasado
+    const me = this.sock?.authState?.creds?.me || this.sock?.user;
+    if (!this.isReady || !me) {
+      return { phoneNumber: null, pushName: null };
+    }
+    return {
+      phoneNumber: me.id?.split(":")[0]?.split("@")[0] || null,
+      pushName: me.name || me.notify || null,
+    };
+  }
 
   /**
    * Obtiene el estado actual
@@ -1175,6 +1215,7 @@ class WhatsAppService {
         : this.currentQR
           ? "qr-ready"
           : "disconnected",
+      ...this.getUserInfo(),
     };
   }
 }
