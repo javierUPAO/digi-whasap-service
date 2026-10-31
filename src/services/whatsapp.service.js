@@ -555,8 +555,24 @@ class WhatsAppService {
       // Ignorar mensajes propios
       if (msg.key.fromMe) continue;
 
-      // Ignorar mensajes de grupos
-      if (msg.key.remoteJid.includes("@g.us")) continue;
+      // Ignorar mensajes de grupos, comunidades, canales y difusiones
+      // Solo deben recibirse mensajes directos 1 a 1 de usuarios (@s.whatsapp.net o @lid)
+      const remoteJid = msg.key?.remoteJid;
+      if (!remoteJid) continue;
+
+      if (
+        remoteJid.includes("@g.us") ||
+        remoteJid.includes("@newsletter") ||
+        remoteJid.includes("@broadcast") ||
+        remoteJid.includes("@call")
+      ) {
+        continue;
+      }
+
+      // Validar que provenga de un chat individual permitido
+      if (!remoteJid.endsWith("@s.whatsapp.net") && !this.isLid(remoteJid)) {
+        continue;
+      }
 
       // Ignorar reacciones a mensajes (no son mensajes de texto ni media)
       if (msg.message?.reactionMessage) continue;
