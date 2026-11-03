@@ -29,7 +29,7 @@ let activeSocketConnections = 0;
 
 app.set("trust proxy", 1);
 app.use(cors({ origin: ALLOWED_ORIGINS }));
-app.use(express.json({ limit: "10mb" }));
+app.use(express.json({ limit: "100mb" })); //Los archivos viajan en Base64 (lo que incrementa su peso en un ~33%), un video de 15 MB pesará ~20 MB en el body JSON
 
 /********************* ENDPOINTS *********************/
 
